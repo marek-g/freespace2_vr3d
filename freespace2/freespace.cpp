@@ -3254,144 +3254,175 @@ void game_render_frame( camid cid )
 
 	g3_start_frame(game_zbuffer);
 
-	camera *cam = cid.getCamera();
-	matrix eye_no_jitter = vmd_identity_matrix;
-	if(cam != nullptr)
-	{
-		vec3d eye_pos;
-		matrix eye_orient;
+    camera *cam = cid.getCamera();
+    matrix eye_no_jitter = vmd_identity_matrix;
+    vec3d eye_pos;
+    matrix eye_orient;
+	float fov = 0.0f;
+    if(cam != nullptr)
+    {
+        //Get current camera info
+        cam->get_info(&eye_pos, &eye_orient);
 
-		//Get current camera info
-		cam->get_info(&eye_pos, &eye_orient);
+        //Handle jitter if not cutscene camera
+        eye_no_jitter = eye_orient;
+        if( !(Viewer_mode & VM_FREECAMERA) ) {
+            apply_view_shake(&eye_orient);
+            cam->set_rotation(&eye_orient);
+        }
 
-		//Handle jitter if not cutscene camera
-		eye_no_jitter = eye_orient;
-		if( !(Viewer_mode & VM_FREECAMERA) ) {
-			apply_view_shake(&eye_orient);
-			cam->set_rotation(&eye_orient);
+        //Maybe override FOV from SEXP
+        if(Sexp_fov <= 0.0f)
+            fov = cam->get_fov();
+        else
+			fov = Sexp_fov;
+    }
+    else
+    {
+		eye_pos = vmd_zero_vector;
+        eye_orient = vmd_identity_matrix;
+		fov = VIEWER_ZOOM_DEFAULT;
+    }
+
+	// vector pointing to the right of the camera
+	// used to move camera to the position of left and right eye
+    vec3d right = { { { 1.0f, 0.0f, 0.0f } } };
+    vec3d right_rotated;
+    vm_vec_rotate(&right_rotated, &right, &eye_orient);
+
+    // Stereo image - draw scene twice (once for each eye)
+    for (gr_eye = 0; gr_eye <= 1; gr_eye++) {
+
+		if (gr_eye == 0) {
+			// position left eye to the left
+            vec3d left_eye_pos = eye_pos;
+
+			left_eye_pos.xyz.x -= (right_rotated.xyz.x * gr_eye_separation / 2.0f);
+            left_eye_pos.xyz.y -= (right_rotated.xyz.y * gr_eye_separation / 2.0f);
+            left_eye_pos.xyz.z -= (right_rotated.xyz.z * gr_eye_separation / 2.0f);
+
+			g3_set_view_matrix(&left_eye_pos, &eye_orient, fov);
+		} else if (gr_eye == 1) {
+            // position right eye to the right
+            vec3d right_eye_pos = eye_pos;
+
+            right_eye_pos.xyz.x += (right_rotated.xyz.x * gr_eye_separation / 2.0f);
+            right_eye_pos.xyz.y += (right_rotated.xyz.y * gr_eye_separation / 2.0f);
+            right_eye_pos.xyz.z += (right_rotated.xyz.z * gr_eye_separation / 2.0f);
+
+            g3_set_view_matrix(&right_eye_pos, &eye_orient, fov);
+		} else {
+            g3_set_view_matrix(&eye_pos, &eye_orient, fov);
 		}
 
-		//Maybe override FOV from SEXP
-		if(Sexp_fov <= 0.0f)
-			g3_set_view_matrix(&eye_pos, &eye_orient, cam->get_fov());
-		else
-			g3_set_view_matrix(&eye_pos, &eye_orient, Sexp_fov);
-	}
-	else
-	{
-		g3_set_view_matrix(&vmd_zero_vector, &vmd_identity_matrix, VIEWER_ZOOM_DEFAULT);
-	}
+        if (!(Game_mode & GM_LAB)) {
+            // maybe offset the HUD (jitter stuff) and measure the 2D displacement between the player's view and ship vector
+            int dont_offset = ((Game_mode & GM_MULTIPLAYER) && (Net_player->flags & NETINFO_FLAG_OBSERVER));
+            HUD_set_offsets(Viewer_obj, !dont_offset, &eye_no_jitter);
+        }
 
-	if (!(Game_mode & GM_LAB)) {
-		// maybe offset the HUD (jitter stuff) and measure the 2D displacement between the player's view and ship vector
-		int dont_offset = ((Game_mode & GM_MULTIPLAYER) && (Net_player->flags & NETINFO_FLAG_OBSERVER));
-		HUD_set_offsets(Viewer_obj, !dont_offset, &eye_no_jitter);
-	}
+        // for multiplayer clients, call code in Shield.cpp to set up the Shield_hit array.  Have to
+        // do this becaues of the disjointed nature of this system (in terms of setup and execution).
+        // must be done before ships are rendered
+        if ( MULTIPLAYER_CLIENT ) {
+            shield_point_multi_setup();
+        }
 
-	// for multiplayer clients, call code in Shield.cpp to set up the Shield_hit array.  Have to
-	// do this becaues of the disjointed nature of this system (in terms of setup and execution).
-	// must be done before ships are rendered
-	if ( MULTIPLAYER_CLIENT ) {
-		shield_point_multi_setup();
-	}
+        // this needs to happen after g3_start_frame() and before the primary projection and view matrix is setup
+        if ( Cmdline_env ) {
+            stars_setup_environment_mapping(cid);
+        }
+		gr_zbuffer_clear(TRUE);
 
-	// this needs to happen after g3_start_frame() and before the primary projection and view matrix is setup
-	if ( Cmdline_env ) {
-		stars_setup_environment_mapping(cid);
-	}
-	gr_zbuffer_clear(TRUE);
+		gr_scene_texture_begin();
 
-	gr_scene_texture_begin();
+		neb2_render_setup(cid);
 
-	neb2_render_setup(cid);
+		gr_set_proj_matrix(Proj_fov, gr_screen.clip_aspect, Min_draw_distance, Max_draw_distance);
+		gr_set_view_matrix(&Eye_position, &Eye_matrix);
 
-	gr_set_proj_matrix(Proj_fov, gr_screen.clip_aspect, Min_draw_distance, Max_draw_distance);
-	gr_set_view_matrix(&Eye_position, &Eye_matrix);
+		if (Game_subspace_effect) {
+			stars_draw(0, 0, 0, 1, 0);
+		} else {
+			stars_draw(1, 1, 1, 0, 0);
+		}
 
-	if ( Game_subspace_effect )	{
-		stars_draw(0,0,0,1,0);
-	} else {
-		stars_draw(1,1,1,0,0);
-	}
+		shadows_render_all(Proj_fov, &Eye_matrix, &Eye_position);
+		obj_render_queue_all();
 
-	shadows_render_all(Proj_fov, &Eye_matrix, &Eye_position);
-	obj_render_queue_all();
+		render_shields();
 
-	render_shields();
+		if (!Trail_render_override)
+			trail_render_all(); // render missilie trails after everything else.
+		particle::render_all(); // render particles after everything else.
 
-	if (!Trail_render_override) trail_render_all();						// render missilie trails after everything else.
-	particle::render_all();					// render particles after everything else.
-	
+		beam_render_all(); // render all beam weapons
 
-	beam_render_all();						// render all beam weapons
+		// render nebula lightning
+		nebl_render_all();
 
-	// render nebula lightning
-	nebl_render_all();
+		// render local player nebula
+		neb2_render_player();
 
-	// render local player nebula
-	neb2_render_player();
+		batching_render_all(false);
 
-	batching_render_all(false);
+		gr_copy_effect_texture();
 
-	gr_copy_effect_texture();
+		// render all ships with shader effects on them
+		SCP_vector<object*>::iterator obji = effect_ships.begin();
+		for (; obji != effect_ships.end(); ++obji) {
+			obj_render(*obji);
+		}
+		effect_ships.clear();
 
-	// render all ships with shader effects on them
-	SCP_vector<object*>::iterator obji = effect_ships.begin();
-	for(;obji != effect_ships.end();++obji)
-	{
-		obj_render(*obji);
-	}
-	effect_ships.clear();
+		// render distortions after the effect framebuffer is copied.
+		batching_render_all(true);
 
-	// render distortions after the effect framebuffer is copied.
-	batching_render_all(true);
-
-	Shadow_override = true;
-	//Draw the viewer 'cause we didn't before.
-	//This is so we can change the minimum clipping distance without messing everything up.
-	if (Viewer_obj && (Viewer_obj->type == OBJ_SHIP)
-		&& (Ship_info[Ships[Viewer_obj->instance].ship_info_index].flags[Ship::Info_Flags::Show_ship_model])
-		&& (!Viewer_mode || (Viewer_mode & VM_PADLOCK_ANY) || (Viewer_mode & VM_OTHER_SHIP) || (Viewer_mode & VM_TRACK)
-			|| !(Viewer_mode & VM_EXTERNAL)))
-	{
-		gr_post_process_save_zbuffer();
-		ship_render_show_ship_cockpit(Viewer_obj);
-		gr_post_process_restore_zbuffer();
-	}
-
+		Shadow_override = true;
+		// Draw the viewer 'cause we didn't before.
+		// This is so we can change the minimum clipping distance without messing everything up.
+		if (Viewer_obj && (Viewer_obj->type == OBJ_SHIP) &&
+			(Ship_info[Ships[Viewer_obj->instance].ship_info_index].flags[Ship::Info_Flags::Show_ship_model]) &&
+			(!Viewer_mode || (Viewer_mode & VM_PADLOCK_ANY) || (Viewer_mode & VM_OTHER_SHIP) ||
+				(Viewer_mode & VM_TRACK) || !(Viewer_mode & VM_EXTERNAL))) {
+			gr_post_process_save_zbuffer();
+			ship_render_show_ship_cockpit(Viewer_obj);
+			gr_post_process_restore_zbuffer();
+		}
 
 #ifndef NDEBUG
-	ai_debug_render_stuff();
-	extern void snd_spew_debug_info();
-	snd_spew_debug_info();
+		ai_debug_render_stuff();
+		extern void snd_spew_debug_info();
+		snd_spew_debug_info();
 #endif
 
-	gr_end_proj_matrix();
-	gr_end_view_matrix();
+		gr_end_proj_matrix();
+		gr_end_view_matrix();
 
-	//Draw viewer cockpit
-	if(Viewer_obj != nullptr && Viewer_mode != VM_TOPDOWN && Ship_info[Ships[Viewer_obj->instance].ship_info_index].cockpit_model_num > 0)
-	{
-		GR_DEBUG_SCOPE("Render Cockpit");
+		// Draw viewer cockpit
+		if (Viewer_obj != nullptr && Viewer_mode != VM_TOPDOWN &&
+			Ship_info[Ships[Viewer_obj->instance].ship_info_index].cockpit_model_num > 0) {
+			GR_DEBUG_SCOPE("Render Cockpit");
 
-		gr_post_process_save_zbuffer();
-		ship_render_cockpit(Viewer_obj);
-		gr_post_process_restore_zbuffer();
+			gr_post_process_save_zbuffer();
+			ship_render_cockpit(Viewer_obj);
+			gr_post_process_restore_zbuffer();
+		}
+
+		gr_set_proj_matrix(Proj_fov, gr_screen.clip_aspect, Min_draw_distance, Max_draw_distance);
+		gr_set_view_matrix(&Eye_position, &Eye_matrix);
+
+		// Do the sunspot
+		game_sunspot_process(flFrametime);
+
+		gr_end_proj_matrix();
+		gr_end_view_matrix();
+
+		Shadow_override = false;
+		//================ END OF 3D RENDERING STUFF ====================
+
+		gr_scene_texture_end();
 	}
-
-	gr_set_proj_matrix(Proj_fov, gr_screen.clip_aspect, Min_draw_distance, Max_draw_distance);
-	gr_set_view_matrix(&Eye_position, &Eye_matrix);
-
-	// Do the sunspot
-	game_sunspot_process(flFrametime);
-
-	gr_end_proj_matrix();
-	gr_end_view_matrix();
-
-	Shadow_override = false;
-	//================ END OF 3D RENDERING STUFF ====================
-
-	gr_scene_texture_end();
 
 	extern int Multi_display_netinfo;
 	if(Multi_display_netinfo){
@@ -3411,7 +3442,7 @@ void game_render_frame( camid cid )
 	extern void oo_display();
 	oo_display();			
 #endif
-	
+
 	g3_end_frame();
 }
 
@@ -4045,7 +4076,7 @@ void game_frame(bool paused)
 
 			// maybe render and process the dead popup
 			game_maybe_do_dead_popup(flFrametime);
-			
+
 			// If a regular popup is active, don't flip (popup code flips)
 			if( !popup_running_state() ){
 				DEBUG_GET_TIME( flip_time1 )

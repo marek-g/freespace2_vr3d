@@ -128,11 +128,27 @@ void gr_set_proj_matrix(float fov, float aspect, float z_near, float z_far) {
 	clip_height = tan( fov * 0.5f ) * z_near;
 	clip_width = clip_height * aspect;
 
+	// When displaying Stereo image on monitor, we should use asymmetric frustum.
+	// See here for explanation: http://paulbourke.net/stereographics/stereorender/
+	// This is the case for single monitor, not for Head Mounted Display with
+	// separate screens for each eye.
+	float left, right;
+	if (gr_eye == 0) {
+		left = -clip_width + 0.5f*gr_eye_separation*z_near / gr_camera_focal_length;
+        right = clip_width + 0.5f*gr_eye_separation*z_near / gr_camera_focal_length;
+	} else if (gr_eye == 1) {
+        left = -clip_width - 0.5f*gr_eye_separation*z_near / gr_camera_focal_length;
+        right = clip_width - 0.5f*gr_eye_separation*z_near / gr_camera_focal_length;
+	} else {
+		left = -clip_width;
+        right = clip_width;
+	}
+
 	gr_last_projection_matrix = gr_projection_matrix;
 	if (gr_screen.rendering_to_texture != -1) {
-		create_perspective_projection_matrix(&gr_projection_matrix, -clip_width, clip_width, clip_height, -clip_height, z_near, z_far);
+		create_perspective_projection_matrix(&gr_projection_matrix, left, right, clip_height, -clip_height, z_near, z_far);
 	} else {
-		create_perspective_projection_matrix(&gr_projection_matrix, -clip_width, clip_width, -clip_height, clip_height, z_near, z_far);
+		create_perspective_projection_matrix(&gr_projection_matrix, left, right, -clip_height, clip_height, z_near, z_far);
 	}
 
 	gr_htl_projection_matrix_set = true;

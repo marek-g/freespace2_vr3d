@@ -589,7 +589,24 @@ void gr_opengl_post_process_end()
 	// now render it to the screen ...
 	GL_state.PopFramebufferState();
 
-	opengl_draw_full_screen_textured(0.0f, 0.0f, Scene_texture_u_scale, Scene_texture_u_scale);
+	// Draw scene on the screen
+	if (gr_eye == 0) {
+		// draw left eye (top half of the screen)
+		//opengl_draw_textured_quad(-1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, Scene_texture_u_scale, Scene_texture_v_scale);
+
+        // draw left eye (interlaced odd lines)
+		opengl_draw_textured_quad_interlaced(-1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f, Scene_texture_u_scale, Scene_texture_v_scale, true);
+	}
+	else if (gr_eye == 1) {
+        // draw right eye (bottom half of the screen)
+        //opengl_draw_textured_quad(-1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f, Scene_texture_u_scale, Scene_texture_v_scale);
+
+        // draw right eye (interlaced even lines)
+		opengl_draw_textured_quad_interlaced(-1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f, Scene_texture_u_scale, Scene_texture_v_scale, false);
+	} else {
+		// draw normal 2d picture
+        opengl_draw_full_screen_textured(0.0f, 0.0f, Scene_texture_u_scale, Scene_texture_u_scale);
+	}
 
 	//Shadow Map debug window
 //#define SHADOW_DEBUG

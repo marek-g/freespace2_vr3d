@@ -53,6 +53,10 @@ int Scene_texture_height;
 GLfloat Scene_texture_u_scale = 1.0f;
 GLfloat Scene_texture_v_scale = 1.0f;
 
+int number_of_lines = 0;
+GLfloat *lines_odd = 0;
+GLfloat *lines_even = 0;
+
 inline GLenum opengl_primitive_type(primitive_type prim_type)
 {
 	switch ( prim_type ) {
@@ -397,6 +401,31 @@ void opengl_setup_scene_textures()
 
 	GL_state.BindFrameBuffer(0);
 
+	// setup stencil lines for interlaced mode
+    number_of_lines = gr_screen.max_h / 2;
+    GLfloat *ptr;
+
+	lines_odd = new GLfloat[number_of_lines * 4];
+    ptr = lines_odd;
+    for (int y = 0; y < number_of_lines * 2; y += 2) {
+        GLfloat y_pos = 1.0f - (2.0f * y)/(gr_screen.max_h*1.0f - 1.0f);
+        *ptr++ = -1.0f;
+        *ptr++ = y_pos;
+        *ptr++ = 1.0f;
+        *ptr++ = y_pos;
+    }
+
+	lines_even = new GLfloat[number_of_lines * 4];
+    ptr = lines_even;
+    for (int y = 1; y < number_of_lines * 2; y += 2) {
+        GLfloat y_pos = 1.0f - (2.0f * y)/(gr_screen.max_h*1.0f - 1.0f);
+        *ptr++ = -1.0f;
+        *ptr++ = y_pos;
+        *ptr++ = 1.0f;
+        *ptr++ = y_pos;
+    }
+
+
 	Scene_texture_initialized = 1;
 	Scene_framebuffer_in_frame = false;
 }
@@ -405,6 +434,12 @@ void opengl_scene_texture_shutdown()
 {
 	if ( !Scene_texture_initialized ) {
 		return;
+	}
+
+	if (number_of_lines > 0) {
+		delete[] lines_odd; lines_odd = 0;
+		delete[] lines_even; lines_even = 0;
+		number_of_lines = 0;
 	}
 
 	if ( Scene_color_texture ) {
@@ -903,6 +938,52 @@ void opengl_draw_textured_quad(GLfloat x1,
 	vert_def.add_vertex_component(vertex_format_data::TEX_COORD2, sizeof(GLfloat) * 4, sizeof(GLfloat) * 2);
 
 	opengl_render_primitives_immediate(PRIM_TYPE_TRISTRIP, &vert_def, 4, glVertices, sizeof(glVertices));
+}
+
+void opengl_draw_textured_quad_interlaced(GLfloat x1,
+    GLfloat y1,
+    GLfloat u1,
+    GLfloat v1,
+    GLfloat x2,
+    GLfloat y2,
+    GLfloat u2,
+    GLfloat v2,
+	bool odd_lines) {
+    GR_DEBUG_SCOPE("Draw textured quad - interlaced");
+
+	// draw mask lines in stencil buffer
+    gr_stencil_clear();
+    gr_stencil_set(GR_STENCIL_WRITE);
+    gr_set_color_buffer(0);
+
+	if (gr_screen.max_h / 2 == number_of_lines && number_of_lines > 0) {
+        vertex_layout vert_def_lines;
+
+        vert_def_lines.add_vertex_component(vertex_format_data::POSITION2, sizeof(float) * 2, 0);
+
+        opengl_render_primitives_immediate(PRIM_TYPE_LINES, &vert_def_lines, number_of_lines * 2,
+            odd_lines ? lines_even : lines_odd, sizeof(float) * 2 * 2 * number_of_lines);
+    }
+
+	// draw rectangle
+    gr_set_color_buffer(1);
+    gr_stencil_set(GR_STENCIL_READ);
+
+    GLfloat glVertices[4][4] = {
+        { x1, y1, u1, v1 },
+        { x1, y2, u1, v2 },
+        { x2, y1, u2, v1 },
+        { x2, y2, u2, v2 }
+    };
+
+    vertex_layout vert_def;
+
+    vert_def.add_vertex_component(vertex_format_data::POSITION2, sizeof(GLfloat) * 4, 0);
+    vert_def.add_vertex_component(vertex_format_data::TEX_COORD2, sizeof(GLfloat) * 4, sizeof(GLfloat) * 2);
+
+    opengl_render_primitives_immediate(PRIM_TYPE_TRISTRIP, &vert_def, 4, glVertices, sizeof(glVertices));
+
+    gr_stencil_set(GR_STENCIL_NONE);
 }
 
 void opengl_draw_full_screen_textured(GLfloat u1, GLfloat v1, GLfloat u2, GLfloat v2)

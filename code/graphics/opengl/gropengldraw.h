@@ -119,6 +119,17 @@ void opengl_draw_textured_quad(GLfloat x1,
 	GLfloat u2,
 	GLfloat v2);
 
+void opengl_draw_textured_quad_interlaced(GLfloat x1,
+	GLfloat y1,
+	GLfloat u1,
+	GLfloat v1,
+	GLfloat x2,
+	GLfloat y2,
+	GLfloat u2,
+	GLfloat v2,
+	bool odd_lines);
+
+
 /**
  * @brief Draw "something" so that the entire screen is covered and the corners use the UV values that are provided.
  *

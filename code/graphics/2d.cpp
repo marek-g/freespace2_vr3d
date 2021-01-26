@@ -62,6 +62,10 @@ const char* Resolution_prefixes[GR_NUM_RESOLUTIONS] = {"", "2_"};
 
 screen gr_screen;
 
+int gr_eye; // 0 - left, 1 - right
+float gr_eye_separation = 0.66f; // the distance between left and right eye
+float gr_camera_focal_length = 30.0f;
+
 color_gun Gr_red, Gr_green, Gr_blue, Gr_alpha;
 color_gun Gr_t_red, Gr_t_green, Gr_t_blue, Gr_t_alpha;
 color_gun Gr_ta_red, Gr_ta_green, Gr_ta_blue, Gr_ta_alpha;

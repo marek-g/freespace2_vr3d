@@ -939,6 +939,10 @@ extern void gr_close();
 
 extern screen gr_screen;
 
+extern int gr_eye; // 0 - left, 1 - right
+extern float gr_eye_separation; // the distance between left and right eye
+extern float gr_camera_focal_length;
+
 #define GR_FILL_MODE_WIRE 1
 #define GR_FILL_MODE_SOLID 2
 
